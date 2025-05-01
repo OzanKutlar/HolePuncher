@@ -1,34 +1,40 @@
-# client.py
+# host.py
 import socket
 import threading
-import time
+import argparse
 
-RENDEZVOUS_SERVER = ('vps', 5000)
-MY_ID = input("Enter your ID: ")  # Unique ID to identify yourself to server
+parser = argparse.ArgumentParser()
+parser.add_argument('--vps_ip', required=True, help='IP of the rendezvous server')
+parser.add_argument('--vps_port', type=int, default=5000, help='Port of the rendezvous server')
+args = parser.parse_args()
 
-# Setup UDP socket
+RENDEZVOUS_SERVER = (args.vps_ip, args.vps_port)
+MY_ID = 'host'
+
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind(('', 0))  # Let OS pick a random port
+sock.bind(('', 0))
+print(f"[HOST] Bound to local port {sock.getsockname()[1]}")
 
-# Register with the server
 sock.sendto(MY_ID.encode(), RENDEZVOUS_SERVER)
 
-# Wait to receive peer info
-data, _ = sock.recvfrom(1024)
-peer_ip, peer_port = data.decode().split(':')
-peer_addr = (peer_ip, int(peer_port))
-
-print(f"Received peer address: {peer_addr}")
-
-# Punch a hole by sending packets to peer
-def punch():
+def handle_peer(peer_addr):
+    print(f"[+] Handling new peer: {peer_addr}")
     while True:
-        sock.sendto(b"punch", peer_addr)
-        time.sleep(1)
+        try:
+            data, addr = sock.recvfrom(1024)
+            if addr == peer_addr:
+                print(f"[{addr}] {data.decode()}")
+                sock.sendto(f"Echo: {data.decode()}".encode(), peer_addr)
+        except:
+            break
 
-threading.Thread(target=punch, daemon=True).start()
-
-# Listen for messages from peer
 while True:
-    msg, addr = sock.recvfrom(1024)
-    print(f"Received from {addr}: {msg.decode()}")
+    data, _ = sock.recvfrom(1024)
+    peer_ip, peer_port = data.decode().split(':')
+    peer_addr = (peer_ip, int(peer_port))
+    print(f"[HOST] Got new peer: {peer_addr}")
+
+    for _ in range(5):
+        sock.sendto(b"punch", peer_addr)
+
+    threading.Thread(target=handle_peer, args=(peer_addr,), daemon=True).start()
